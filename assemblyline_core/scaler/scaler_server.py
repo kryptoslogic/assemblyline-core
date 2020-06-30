@@ -25,12 +25,11 @@ from assemblyline.remote.datatypes.hash import ExpiringHash
 
 from assemblyline.common.constants import SCALER_TIMEOUT_QUEUE, SERVICE_STATE_HASH, ServiceStatus
 from assemblyline.odm.models.service import Service, DockerConfig
-from assemblyline_core.scaler.controllers import KubernetesController
-from assemblyline_core.scaler.controllers.interface import ServiceControlError
+from assemblyline_core.containers.interface import ControllerInterface, ContainerError
+from assemblyline_core.containers import KubernetesController, DockerController
 
 from assemblyline_core.server_base import CoreBase, ServiceStage
 
-from .controllers import DockerController
 from . import collection
 
 # How often (in seconds) to download new service data, try to scale managed services,
@@ -188,6 +187,7 @@ class ScalerServer(CoreBase):
             if CLASSIFICATION_HOST_PATH:
                 self.controller.global_mounts.append((CLASSIFICATION_HOST_PATH, '/etc/assemblyline/classification.yml'))
 
+        self.controller: ControllerInterface = self.controller
         self.profiles: Dict[str, ServiceProfile] = {}
 
         # Prepare a single threaded scheduler
@@ -418,7 +418,7 @@ class ScalerServer(CoreBase):
                 if not self.running:
                     return
 
-        except ServiceControlError as error:
+        except ContainerError as error:
             self.log.exception("Error while scaling services.")
             self.handle_service_error(error.service_name)
 
