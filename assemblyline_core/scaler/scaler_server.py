@@ -187,6 +187,10 @@ class ScalerServer(CoreBase):
             if CLASSIFICATION_HOST_PATH:
                 self.controller.global_mounts.append((CLASSIFICATION_HOST_PATH, '/etc/assemblyline/classification.yml'))
 
+            # Start a background thread to keep the service server connected
+            threading.Thread(target=self._refresh_service_networks, daemon=True).start()
+            self.service_server = self.find_service_server()
+
         self.controller: ControllerInterface = self.controller
         self.profiles: Dict[str, ServiceProfile] = {}
 
@@ -196,12 +200,26 @@ class ScalerServer(CoreBase):
         self.scheduler_stopped = threading.Event()
 
     def add_service(self, profile: ServiceProfile):
-        profile.desired_instances = max(self.controller.get_target(profile.name), profile.min_instances)
+        # Figure out how many instances this service should start with
+        try:
+            container_set = self.controller.get_set(self.prefix + profile.name)
+            profile.desired_instances = container_set.get_scale()
+            container_set.stop()  # If the service was already running, stop the old instances
+        except KeyError:
+            profile.desired_instances = profile.min_instances
         profile.running_instances = profile.desired_instances
+
+        # Add the service
         self.log.debug(f'Starting service {profile.name} with a target of {profile.desired_instances}')
         profile.last_update = time.time()
         self.profiles[profile.name] = profile
-        self.controller.add_profile(profile)
+        self.controller.create_set(
+            name=self.prefix + profile.name,
+            config=profile.container_config,
+            scale=profile.desired_instances,
+            networks=,
+            labels=
+        )
 
     def try_run(self):
         # Do an initial call to the main methods, who will then be registered with the scheduler
@@ -245,12 +263,12 @@ class ScalerServer(CoreBase):
                 if service.enabled and stage == ServiceStage.Off:
                     # Enable this service's dependencies
                     self.controller.prepare_network(service.name, service.docker_config.allow_internet_access)
-                    for _n, dependency in service.dependencies.items():
-                        self.controller.start_stateful_container(
-                            service_name=service.name,
-                            container_name=_n,
+                    for dependency_name, dependency in service.dependencies.items():
+                        self.controller.create_container(
+                            name=f'{service.name}-dep-{dependency_name}',
                             spec=dependency,
-                            labels={'dependency_for': service.name}
+                            labels=self.default_labels + {'dependency_for': service.name},
+                            networks=,
                         )
 
                     # Move to the next service stage
@@ -323,18 +341,20 @@ class ScalerServer(CoreBase):
 
         if current_stage != ServiceStage.Off:
             # Disable this service's dependencies
-            self.controller.stop_containers(labels={
-                'dependency_for': name
-            })
+            for container in self.controller.find_containers(labels={'dependency_for': name}):
+                container.stop()
 
             # Mark this service as not running in the shared record
             self._service_stage_hash.set(name, ServiceStage.Off)
 
         # Stop any running disabled services
-        if name in self.profiles or self.controller.get_target(name) > 0:
-            self.log.info(f'Removing {name} from scaling')
-            self.controller.set_target(name, 0)
-            self.profiles.pop(name, None)
+        self.log.info(f'Removing {name} from scaling')
+        self.profiles.pop(name, None)
+        try:
+            container_set = self.controller.get_set(self.prefix + name)
+            container_set.stop()
+        except KeyError:
+            pass
 
     def update_scaling(self):
         """Check if we need to scale any services up or down."""

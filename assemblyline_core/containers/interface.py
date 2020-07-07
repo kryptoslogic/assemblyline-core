@@ -29,6 +29,9 @@ class ContainerSetInterface:
     def scale(self, instances: int):
         raise NotImplementedError()
 
+    def get_scale(self) -> int:
+        raise NotImplementedError()
+
 
 class ControllerInterface:
 
@@ -40,7 +43,7 @@ class ControllerInterface:
         """Get the free and total RAM."""
         raise NotImplementedError()
 
-    def start_container(self, name, config: DockerConfig) -> ContainerInterface:
+    def create_container(self, name, config: DockerConfig) -> ContainerInterface:
         """Start a single container."""
         raise NotImplementedError()
 
@@ -52,7 +55,7 @@ class ControllerInterface:
         """Get information about a set of containers."""
         raise NotImplementedError()
 
-    def start_set(self, name: str, config: DockerConfig, scale: int) -> ContainerSetInterface:
+    def create_set(self, name: str, config: DockerConfig, scale: int) -> ContainerSetInterface:
         """Start a set of identical containers."""
         raise NotImplementedError()
 
@@ -60,6 +63,5 @@ class ControllerInterface:
         """"""
         raise NotImplementedError()
 
-    # def find_sets(self, labels) -> List[ContainerSetInterface]:
-    #     """"""
-    #     raise NotImplementedError()
+    def stop(self):
+        raise NotImplementedError()

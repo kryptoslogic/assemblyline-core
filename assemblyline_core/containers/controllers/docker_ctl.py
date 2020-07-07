@@ -18,46 +18,6 @@ NETWORK_REFRESH_INTERVAL = 60 * 3
 
 
 class DockerController(ControllerInterface):
-    """A controller for *non* swarm mode docker."""
-    def __init__(self, logger, prefix='', labels=None, cpu_overallocation=1, memory_overallocation=1):
-        """
-        :param logger: A logger to report status and debug information.
-        :param prefix: A prefix used to distinguish containers launched by this controller.
-        :param cpu_overallocation: A multiplier on CPU usage. (2 means act like there are twice as many CPU present)
-        :param memory_overallocation: A multiplier on memory usage. (2 means act like there is twice as much memory)
-        """
-        # Connect to the host docker port
-        import docker
-        self.client = docker.from_env()
-        self.log = logger
-        self.global_mounts: List[Tuple[str, str]] = []
-        self._prefix: str = prefix
-        self._labels = labels
-
-        for network in self.client.networks.list(names=['external']):
-            self.external_network = network
-            break
-        else:
-            self.external_network = self.client.networks.create(name='external', internal=False)
-        self.networks = {}
-
-        # CPU and memory reserved for the host
-        self._reserved_cpu = 0.3
-        self._reserved_mem = 500
-        self.cpu_overallocation = cpu_overallocation
-        self.memory_overallocation = memory_overallocation
-        self._profiles = {}
-        self.service_server = self.find_service_server()
-
-        # Prefetch some info that shouldn't change while we are running
-        self._info = self.client.info()
-
-        # We aren't checking for swarm nodes
-        assert not self._info['Swarm']['NodeID']
-
-        # Start a background thread to keep the service server connected
-        threading.Thread(target=self._refresh_service_networks, daemon=True).start()
-        self._flush_containers()  # Clear out any containers that are left over from a previous run
 
     def find_service_server(self):
         service_server_container = None
@@ -314,7 +274,6 @@ class DockerController(ControllerInterface):
 
     def start_stateful_container(self, service_name, container_name, spec, labels):
         volumes = {_n: {'bind': _v.mount_path, 'mode': 'rw'} for _n, _v in spec.volumes.items()}
-        deployment_name = f'{service_name}-dep-{container_name}'
 
         all_labels = dict(self._labels)
         all_labels.update({'component': service_name})
